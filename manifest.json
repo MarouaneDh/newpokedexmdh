@@ -1,0 +1,14 @@
+{
+  "name": "Pokédex",
+  "short_name": "Pokédex",
+  "description": "Explore every Pokémon across every region. Filters, evolutions, stats, compare and more.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#11131a",
+  "theme_color": "#ee1515",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

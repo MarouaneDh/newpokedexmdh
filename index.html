@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pokédex - Explore Every Region</title>
+  <meta name="description" content="A beautiful Pokédex powered by PokeAPI. Browse, search and filter Pokémon across every region by type, region and more." />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23ee1515' stroke='%23111' stroke-width='2'/%3E%3Cpath d='M1 16h30' stroke='%23111' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23fff' stroke='%23111' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <meta name="theme-color" content="#ee1515" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Pokédex" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <script>
+    // Apply theme before paint to avoid a flash of the wrong theme.
+    (function () {
+      var saved = localStorage.getItem('pokedex-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    })();
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['selector', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Fredoka', 'system-ui', 'sans-serif'],
+            body: ['Nunito', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            poke: {
+              red: '#ee1515',
+              dark: '#b91313',
+              ink: '#1f2933',
+              cream: '#f7f8fc',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="font-body app-bg antialiased">
+
+  <!-- ===== Header ===== -->
+  <header class="sticky top-0 z-40">
+    <div class="bg-poke-red text-white shadow-lg relative overflow-hidden">
+      <span class="header-glow" aria-hidden="true"></span>
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center gap-3 relative">
+        <span class="pokeball-icon" aria-hidden="true"></span>
+        <div class="flex-1 min-w-0">
+          <h1 class="font-display font-700 text-xl sm:text-2xl leading-none tracking-tight">Pokédex</h1>
+          <p class="text-white/80 text-xs sm:text-sm font-500 leading-tight hidden sm:block">Explore every region · powered by PokeAPI</p>
+        </div>
+        <div class="text-right">
+          <p id="result-count" class="font-display font-600 text-lg leading-none" aria-live="polite">0</p>
+          <p class="text-white/70 text-[11px] uppercase tracking-wide">Pokémon</p>
+        </div>
+        <div class="flex items-center gap-1 ml-1">
+          <button id="random-btn" type="button" aria-label="Random Pokémon" class="header-btn">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor" stroke="none"/></svg>
+          </button>
+          <button id="game-btn" type="button" aria-label="Who's That Pokémon? game" class="header-btn">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
+          </button>
+          <button id="theme-toggle" type="button" aria-label="Toggle dark mode" class="header-btn">
+            <svg class="theme-icon-sun w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <svg class="theme-icon-moon w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>
+          </button>
+          <button id="settings-btn" type="button" aria-label="Settings" class="header-btn">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings popover -->
+    <div id="settings-panel" class="settings-panel hidden">
+      <h3 class="settings-title">Settings</h3>
+      <label class="settings-row">
+        <span>Auto-play cry</span>
+        <input id="auto-cry" type="checkbox" class="settings-switch" />
+      </label>
+      <label class="settings-row">
+        <span>Entry language</span>
+        <select id="lang-select" class="field rounded-lg px-2 py-1 text-sm font-600"></select>
+      </label>
+      <button id="install-btn" type="button" class="settings-install hidden">Install app</button>
+    </div>
+
+    <!-- Controls bar -->
+    <div class="controls-bar backdrop-blur shadow-sm">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 py-3 space-y-3">
+
+        <!-- Search + sort row -->
+        <div class="flex flex-col sm:flex-row gap-3">
+          <div class="relative flex-1">
+            <label for="search" class="sr-only">Search Pokémon by name or number</label>
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="search" type="search" inputmode="search" placeholder="Search by name or #number…"
+              class="field w-full rounded-xl pl-10 pr-4 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-poke-red/60 transition-colors" />
+          </div>
+
+          <div class="flex gap-2">
+            <button id="fav-toggle" type="button" aria-pressed="false" aria-label="Show favorites only"
+              class="field cursor-pointer rounded-xl px-3.5 py-2.5 flex items-center gap-2 font-600 focus:outline-none focus:ring-2 focus:ring-poke-red/60 transition-colors">
+              <svg class="w-5 h-5 fav-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-10-9.3C.4 8.4 1.9 5 5.2 5c2 0 3.3 1.1 4.1 2.3C10.1 6.1 11.4 5 13.4 5c3.3 0 4.8 3.4 3.2 6.7C19.5 16.4 12 21 12 21z"/></svg>
+              <span class="hidden sm:inline">Favorites</span>
+            </button>
+            <div class="relative">
+              <label for="sort" class="sr-only">Sort Pokémon</label>
+              <select id="sort"
+                class="field appearance-none cursor-pointer rounded-xl pl-4 pr-9 py-2.5 text-base font-600 focus:outline-none focus:ring-2 focus:ring-poke-red/60 transition-colors">
+                <option value="id-asc">Number ↑</option>
+                <option value="id-desc">Number ↓</option>
+                <option value="name-asc">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+                <option value="total-desc">Strongest</option>
+                <option value="total-asc">Weakest</option>
+                <option value="attack-desc">Highest Attack</option>
+                <option value="speed-desc">Fastest</option>
+                <option value="hp-desc">Most HP</option>
+              </select>
+              <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <button id="reset-filters" type="button"
+              class="field cursor-pointer rounded-xl px-4 py-2.5 text-base font-600 focus:outline-none focus:ring-2 focus:ring-poke-red/60 transition-colors">
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Region selector -->
+        <div>
+          <p class="text-xs font-700 uppercase tracking-wider txt-muted mb-1.5">Region</p>
+          <div id="region-filters" class="flex flex-wrap gap-2" role="group" aria-label="Filter by region"></div>
+        </div>
+
+        <!-- Type filter (collapsible on mobile via details) -->
+        <details class="group" open>
+          <summary class="flex items-center gap-2 cursor-pointer list-none text-xs font-700 uppercase tracking-wider txt-muted mb-1.5 select-none">
+            <span>Type</span>
+            <svg class="w-3.5 h-3.5 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div id="type-filters" class="flex flex-wrap gap-2" role="group" aria-label="Filter by type"></div>
+        </details>
+
+        <!-- Advanced filters -->
+        <details class="group">
+          <summary class="flex items-center gap-2 cursor-pointer list-none text-xs font-700 uppercase tracking-wider txt-muted select-none">
+            <span>Advanced</span>
+            <svg class="w-3.5 h-3.5 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mt-2">
+            <label class="adv-check"><input id="leg-filter" type="checkbox" class="settings-switch" /> <span>Legendary</span></label>
+            <label class="adv-check"><input id="myth-filter" type="checkbox" class="settings-switch" /> <span>Mythical</span></label>
+            <label class="adv-range">
+              <span class="txt-muted font-600 text-sm">Min stat total: <b id="min-total-val" class="txt-strong">0</b></span>
+              <input id="min-total" type="range" min="0" max="720" step="20" value="0" class="adv-slider" />
+            </label>
+          </div>
+        </details>
+
+      </div>
+    </div>
+  </header>
+
+  <div id="top-sentinel"></div>
+
+  <!-- ===== Main grid ===== -->
+  <main class="mx-auto max-w-7xl px-4 sm:px-6 py-6">
+    <!-- Team coverage (shown when Favorites filter is active) -->
+    <section id="coverage" class="coverage-panel hidden mb-5"></section>
+
+    <div id="grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4"></div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="hidden flex-col items-center justify-center text-center py-20">
+      <span class="pokeball-icon pokeball-lg opacity-40 mb-4" aria-hidden="true"></span>
+      <p class="font-display font-600 text-xl txt-strong">No Pokémon found</p>
+      <p class="txt-muted mt-1">Try a different region, type or search term.</p>
+    </div>
+
+    <!-- Sentinel for infinite scroll -->
+    <div id="sentinel" class="h-10"></div>
+    <div id="loader" class="hidden justify-center py-8">
+      <span class="pokeball-icon pokeball-lg pokeball-spin" aria-hidden="true"></span>
+    </div>
+  </main>
+
+  <footer class="mx-auto max-w-7xl px-4 sm:px-6 py-8 text-center text-sm txt-muted">
+    Data from <a href="https://pokeapi.co" target="_blank" rel="noopener" class="font-600 text-poke-red hover:underline">PokeAPI</a>.
+    Pokémon and Pokémon character names are trademarks of Nintendo.
+  </footer>
+
+  <!-- ===== Detail modal ===== -->
+  <div id="modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="modal-name">
+    <div id="modal-backdrop" class="absolute inset-0 bg-poke-ink/60 backdrop-blur-sm"></div>
+    <div id="modal-card" class="modal-surface relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col translate-y-4 sm:translate-y-0 opacity-0 transition-all duration-300">
+      <!-- filled by JS -->
+    </div>
+  </div>
+
+  <!-- ===== Compare overlay ===== -->
+  <div id="compare-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Compare Pokémon">
+    <div id="compare-backdrop" class="absolute inset-0 bg-poke-ink/60 backdrop-blur-sm"></div>
+    <div id="compare-card" class="modal-surface relative w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col translate-y-4 sm:translate-y-0 opacity-0 transition-all duration-300"></div>
+  </div>
+
+  <!-- ===== Who's That Pokémon? game ===== -->
+  <div id="game-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Who's That Pokémon game">
+    <div id="game-backdrop" class="absolute inset-0 bg-poke-ink/60 backdrop-blur-sm"></div>
+    <div id="game-card" class="modal-surface relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col translate-y-4 sm:translate-y-0 opacity-0 transition-all duration-300"></div>
+  </div>
+
+  <!-- ===== Compare tray ===== -->
+  <div id="compare-tray" class="compare-tray">
+    <div class="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
+      <span class="font-display font-600 text-sm flex-none">Compare</span>
+      <div id="compare-items" class="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto"></div>
+      <button id="compare-clear" type="button" class="field cursor-pointer rounded-lg px-3 py-1.5 text-sm font-600 flex-none">Clear</button>
+      <button id="compare-go" type="button" class="cursor-pointer rounded-lg px-4 py-1.5 text-sm font-700 text-white bg-poke-red disabled:opacity-40 disabled:cursor-not-allowed flex-none transition-opacity">Compare</button>
+    </div>
+  </div>
+
+  <!-- ===== Scroll to top ===== -->
+  <button id="to-top" type="button" aria-label="Scroll to top" class="to-top">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+  </button>
+
+  <script src="app.js"></script>
+</body>
+</html>
