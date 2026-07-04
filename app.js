@@ -126,7 +126,8 @@ const el = {};
  'compare-clear', 'compare-modal', 'compare-card', 'compare-backdrop', 'to-top', 'top-sentinel',
  'random-btn', 'game-btn', 'settings-btn', 'settings-panel', 'auto-cry', 'lang-select',
  'install-btn', 'leg-filter', 'myth-filter', 'min-total', 'min-total-val',
- 'game-modal', 'game-card', 'game-backdrop']
+ 'game-modal', 'game-card', 'game-backdrop',
+ 'scan-btn', 'scan-modal', 'scan-card', 'scan-backdrop']
   .forEach((id) => { el[id] = document.getElementById(id); });
 
 init();
@@ -204,6 +205,7 @@ function wireSettings() {
   });
 
   el['game-btn'].addEventListener('click', openGame);
+  el['scan-btn'].addEventListener('click', openScanner);
 }
 
 /* Full national dex name list */
@@ -312,7 +314,9 @@ function wireControls() {
   el['modal-backdrop'].addEventListener('click', closeModal);
   el['compare-backdrop'].addEventListener('click', closeCompare);
   el['game-backdrop'].addEventListener('click', closeGame);
+  el['scan-backdrop'].addEventListener('click', closeScanner);
   document.addEventListener('keydown', (e) => {
+    if (!el['scan-modal'].classList.contains('hidden')) { if (e.key === 'Escape') closeScanner(); return; }
     if (!el['game-modal'].classList.contains('hidden')) { if (e.key === 'Escape') closeGame(); return; }
     if (!el['compare-modal'].classList.contains('hidden')) { if (e.key === 'Escape') closeCompare(); return; }
     if (el.modal.classList.contains('hidden')) return;
@@ -807,7 +811,6 @@ function wireModal(d, species, flavor, genus, name, cryUrl, token) {
   if (cryUrl) {
     cryAudio = new Audio(cryUrl); cryAudio.volume = 0.4;
     root.querySelector('#cry-btn').addEventListener('click', () => { cryAudio.currentTime = 0; cryAudio.play().catch(() => {}); });
-    if (state.autoCry) cryAudio.play().catch(() => {});
   }
 
   const readBtn = root.querySelector('#read-btn');
@@ -816,6 +819,24 @@ function wireModal(d, species, flavor, genus, name, cryUrl, token) {
   entryText += '.';
   if (flavor) entryText += ' ' + flavor;
   readBtn.addEventListener('click', () => speakEntry(entryText, readBtn));
+
+  if (scanAutoRead) {
+    // Scan opened this card: play the cry, then read the entry once it ends.
+    scanAutoRead = false;
+    let read = false;
+    const readNow = () => { if (read) return; read = true; speakEntry(entryText, readBtn); };
+    if (cryAudio) {
+      cryAudio.addEventListener('ended', readNow, { once: true });
+      cryAudio.currentTime = 0;
+      const p = cryAudio.play();
+      if (p && p.catch) p.catch(readNow);   // cry blocked → read straight away
+      setTimeout(readNow, 5000);            // safety net if 'ended' never fires
+    } else {
+      readNow();
+    }
+  } else if (cryUrl && state.autoCry) {
+    cryAudio.play().catch(() => {});
+  }
 
   root.querySelector('#shiny-btn').addEventListener('click', (e) => {
     state.shiny = !state.shiny;
@@ -960,7 +981,7 @@ function closeModal() {
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   setTimeout(() => {
     el.modal.classList.add('hidden'); el.modal.classList.remove('flex');
-    if (el['compare-modal'].classList.contains('hidden') && el['game-modal'].classList.contains('hidden')) document.body.style.overflow = '';
+    if (el['compare-modal'].classList.contains('hidden') && el['game-modal'].classList.contains('hidden') && el['scan-modal'].classList.contains('hidden')) document.body.style.overflow = '';
     if (lastFocused) lastFocused.focus();
   }, 250);
 }
@@ -1006,7 +1027,7 @@ async function openCompare() {
 }
 function closeCompare() {
   el['compare-modal'].classList.remove('modal-open');
-  setTimeout(() => { el['compare-modal'].classList.add('hidden'); el['compare-modal'].classList.remove('flex'); if (el.modal.classList.contains('hidden') && el['game-modal'].classList.contains('hidden')) document.body.style.overflow = ''; }, 250);
+  setTimeout(() => { el['compare-modal'].classList.add('hidden'); el['compare-modal'].classList.remove('flex'); if (el.modal.classList.contains('hidden') && el['game-modal'].classList.contains('hidden') && el['scan-modal'].classList.contains('hidden')) document.body.style.overflow = ''; }, 250);
 }
 
 /* ============================================================
@@ -1020,7 +1041,7 @@ function openGame() {
 }
 function closeGame() {
   el['game-modal'].classList.remove('modal-open');
-  setTimeout(() => { el['game-modal'].classList.add('hidden'); el['game-modal'].classList.remove('flex'); if (el.modal.classList.contains('hidden') && el['compare-modal'].classList.contains('hidden')) document.body.style.overflow = ''; }, 250);
+  setTimeout(() => { el['game-modal'].classList.add('hidden'); el['game-modal'].classList.remove('flex'); if (el.modal.classList.contains('hidden') && el['compare-modal'].classList.contains('hidden') && el['scan-modal'].classList.contains('hidden')) document.body.style.overflow = ''; }, 250);
 }
 function newRound() {
   const pool = state.baseList.length >= 4 ? state.baseList : state.nameList;
@@ -1124,6 +1145,320 @@ function openFromHash() {
   const id = parseInt(location.hash.replace('#', ''), 10);
   if (!id || id < 1 || id > 1025) return;
   if (el.modal.classList.contains('hidden')) openModal(id);
+}
+
+/* ============================================================
+   Camera scan — on-device Pokémon recognition
+   ------------------------------------------------------------
+   TensorFlow.js MobileNet is used as a *feature extractor*: we
+   embed each Pokémon's official artwork once (cached in
+   IndexedDB) and, at scan time, embed the camera frame and pick
+   the nearest neighbours by cosine similarity. No training, no
+   server — fully client-side and offline once model + index are
+   cached. Accuracy is best-effort: strongest on clear shots,
+   screenshots and official-style art; weaker on stylised toys.
+   ============================================================ */
+const SCAN = {
+  MODEL_VER: 'clip-vit-b32-q8',
+  TRANSFORMERS: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js',
+  CLIP_MODEL: 'Xenova/clip-vit-base-patch32',
+  extractor: null,
+  modelPromise: null,
+  index: [],          // [{ id, name, vec: Float32Array, ver }]
+  loaded: false,
+  stream: null,
+  building: false,
+};
+let scanScope = 'kanto';
+let scanAutoRead = false;   // when true, the next opened modal reads its entry aloud
+
+/* ---- IndexedDB (reference embeddings) ---- */
+function scanDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('pokedex-scan', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('refs')) db.createObjectStore('refs', { keyPath: 'id' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function scanGetAll() {
+  const db = await scanDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('refs', 'readonly').objectStore('refs').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function scanPut(records) {
+  const db = await scanDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('refs', 'readwrite');
+    const store = tx.objectStore('refs');
+    records.forEach((r) => store.put(r));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ---- Lazy-load the CLIP image encoder (transformers.js / ONNX) ---- */
+async function ensureModel() {
+  if (SCAN.extractor) return SCAN.extractor;
+  if (!SCAN.modelPromise) {
+    SCAN.modelPromise = (async () => {
+      scanSet('Loading vision model…');
+      const t = await import(SCAN.TRANSFORMERS);
+      t.env.allowLocalModels = false;                 // always fetch from the HF hub
+      const webgpu = typeof navigator !== 'undefined' && 'gpu' in navigator;
+      try {
+        return await t.pipeline('image-feature-extraction', SCAN.CLIP_MODEL,
+          webgpu ? { device: 'webgpu', dtype: 'fp16' } : { device: 'wasm', dtype: 'q8' });
+      } catch (e) {
+        // WebGPU unavailable / unsupported dtype → fall back to quantised WASM
+        return t.pipeline('image-feature-extraction', SCAN.CLIP_MODEL, { device: 'wasm', dtype: 'q8' });
+      }
+    })();
+  }
+  SCAN.extractor = await SCAN.modelPromise;
+  return SCAN.extractor;
+}
+
+/* ---- Preprocess: any source -> 224x224 white-background canvas ---- */
+const _scanCanvas = document.createElement('canvas');
+_scanCanvas.width = 224; _scanCanvas.height = 224;
+const _scanCtx = _scanCanvas.getContext('2d', { willReadFrequently: true });
+function scanToInput(source, sw, sh) {
+  _scanCtx.fillStyle = '#ffffff';
+  _scanCtx.fillRect(0, 0, 224, 224);
+  const side = Math.min(sw, sh);          // largest centred square
+  const sx = (sw - side) / 2, sy = (sh - side) / 2;
+  _scanCtx.drawImage(source, sx, sy, side, side, 0, 0, 224, 224);
+  return _scanCanvas;
+}
+/* ---- Embed a source into an L2-normalised CLIP vector ---- */
+async function scanEmbed(source, sw, sh) {
+  const url = scanToInput(source, sw, sh).toDataURL('image/png');
+  const out = await SCAN.extractor(url);        // CLIP image embedding, shape [1, 512]
+  const data = out.data;
+  const v = new Float32Array(data.length);
+  let norm = 0;
+  for (let i = 0; i < data.length; i++) norm += data[i] * data[i];
+  norm = Math.sqrt(norm) || 1;
+  for (let i = 0; i < data.length; i++) v[i] = data[i] / norm;
+  return v;
+}
+function scanLoadImg(src, cors) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (cors) img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load ' + src));
+    img.src = src;
+  });
+}
+
+/* ---- Build the reference index for a set of ids ---- */
+function scanScopeIds(scope) {
+  const r = REGIONS.find((x) => x.name === scope) || REGIONS[0];
+  const ids = [];
+  for (let i = r.from; i <= r.to; i++) ids.push(i);
+  return ids;
+}
+async function scanBuild() {
+  if (SCAN.building) return;
+  SCAN.building = true;
+  const buildBtn = el['scan-card'].querySelector('#scan-build');
+  if (buildBtn) buildBtn.disabled = true;
+  try {
+    await ensureModel();
+    const have = new Set(SCAN.index.map((r) => r.id));
+    const todo = scanScopeIds(scanScope).filter((id) => !have.has(id));
+    let done = 0, batch = [];
+    scanBar(0);
+    for (const id of todo) {
+      try {
+        const img = await scanLoadImg(ARTWORK(id), true);
+        const vec = await scanEmbed(img, img.naturalWidth, img.naturalHeight);
+        const name = state.nameList.find((p) => p.id === id)?.name || String(id);
+        const rec = { id, name, vec, ver: SCAN.MODEL_VER };
+        SCAN.index.push(rec);
+        batch.push(rec);
+        if (batch.length >= 20) { await scanPut(batch).catch(() => {}); batch = []; }
+      } catch (e) { /* skip missing / CORS-blocked artwork */ }
+      done++;
+      scanBar(done / todo.length);
+      scanSet(`Preparing ${scanLabel()}… ${done}/${todo.length}`);
+    }
+    if (batch.length) await scanPut(batch).catch(() => {});
+    scanBar(null);
+    updateScanStatus();
+  } catch (e) {
+    scanBar(null);
+    scanSet('Could not prepare the library — check your connection and retry.');
+  } finally {
+    SCAN.building = false;
+    if (buildBtn) buildBtn.disabled = false;
+  }
+}
+
+/* ---- Nearest-neighbour match ---- */
+async function scanMatch(source, sw, sh, k = 3) {
+  const q = await scanEmbed(source, sw, sh);
+  const scored = SCAN.index.map((r) => {
+    const v = r.vec; let dot = 0;
+    for (let i = 0; i < v.length; i++) dot += v[i] * q[i];
+    return { id: r.id, name: r.name, score: dot };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, k);
+}
+
+/* ---- Scanner modal ---- */
+function openScanner() {
+  el['scan-modal'].classList.remove('hidden'); el['scan-modal'].classList.add('flex');
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => el['scan-modal'].classList.add('modal-open'));
+  const regionScopes = REGIONS.map((r) => r.name).filter((n) => n !== 'all');
+  scanScope = regionScopes.includes(state.region) ? state.region : 'kanto';
+  renderScanner();
+  loadScanIndex().then(updateScanStatus);
+  startCamera();
+}
+function closeScanner() {
+  stopCamera();
+  el['scan-modal'].classList.remove('modal-open');
+  setTimeout(() => {
+    el['scan-modal'].classList.add('hidden'); el['scan-modal'].classList.remove('flex');
+    if (el.modal.classList.contains('hidden') && el['compare-modal'].classList.contains('hidden') && el['game-modal'].classList.contains('hidden')) document.body.style.overflow = '';
+  }, 250);
+}
+async function loadScanIndex() {
+  if (SCAN.loaded) return;
+  try {
+    const all = await scanGetAll();
+    SCAN.index = all.filter((r) => r.ver === SCAN.MODEL_VER);
+  } catch (e) { SCAN.index = []; }
+  SCAN.loaded = true;
+}
+function scanLabel() { return REGIONS.find((r) => r.name === scanScope)?.label || scanScope; }
+function scanSet(txt) { const s = el['scan-card']?.querySelector('#scan-status'); if (s) s.textContent = txt; }
+function scanBar(frac) {
+  const wrap = el['scan-card']?.querySelector('#scan-progress');
+  const bar = el['scan-card']?.querySelector('#scan-bar');
+  if (!wrap || !bar) return;
+  if (frac == null) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden'); bar.style.width = Math.round(frac * 100) + '%';
+}
+function scanClearResults() { const b = el['scan-card']?.querySelector('#scan-results'); if (b) b.innerHTML = ''; }
+function updateScanStatus() {
+  const ids = scanScopeIds(scanScope);
+  const have = new Set(SCAN.index.map((r) => r.id));
+  const ready = ids.filter((id) => have.has(id)).length;
+  const build = el['scan-card']?.querySelector('#scan-build');
+  const capture = el['scan-card']?.querySelector('#scan-capture');
+  if (!build || !capture) return;
+  if (ready >= ids.length) {
+    scanSet(`${scanLabel()} ready · ${SCAN.index.length} Pokémon scannable.`);
+    build.classList.add('hidden');
+  } else {
+    scanSet(`${scanLabel()}: ${ready}/${ids.length} prepared. First run downloads a ~50 MB model.`);
+    build.textContent = `Prepare ${scanLabel()}`;
+    build.classList.remove('hidden');
+  }
+  capture.disabled = SCAN.index.length === 0;
+}
+function renderScanner() {
+  const opts = REGIONS.map((r) => {
+    const count = r.name === 'all' ? 1025 : r.to - r.from + 1;
+    return `<option value="${r.name}" ${r.name === scanScope ? 'selected' : ''}>${r.label} (${count})</option>`;
+  }).join('');
+  el['scan-card'].innerHTML = `
+    <div class="flex items-center justify-between p-4 border-b" style="border-color:var(--border)">
+      <h2 class="font-display font-700 text-lg">Scan a Pokémon</h2>
+      <button id="scan-close" class="modal-icon-dark" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="scan-body">
+      <div class="scan-stage">
+        <video id="scan-video" playsinline muted autoplay></video>
+        <span class="scan-reticle" aria-hidden="true"></span>
+        <p id="scan-msg" class="scan-msg hidden"></p>
+      </div>
+      <div class="scan-panel">
+        <div class="scan-scope-row">
+          <label for="scan-scope" class="txt-muted font-700 text-xs uppercase tracking-wide">Library</label>
+          <select id="scan-scope" class="field rounded-lg px-2 py-1.5 text-sm font-600">${opts}</select>
+        </div>
+        <p id="scan-status" class="scan-status"></p>
+        <div id="scan-progress" class="scan-progress hidden"><span id="scan-bar"></span></div>
+        <div id="scan-results" class="scan-results"></div>
+        <div class="scan-actions">
+          <button id="scan-build" type="button" class="scan-secondary hidden"></button>
+          <button id="scan-capture" type="button" class="scan-primary" disabled>Scan</button>
+          <label class="scan-secondary scan-upload">Upload<input id="scan-file" type="file" accept="image/*" hidden /></label>
+        </div>
+      </div>
+    </div>`;
+  el['scan-card'].querySelector('#scan-close').addEventListener('click', closeScanner);
+  el['scan-card'].querySelector('#scan-scope').addEventListener('change', (e) => { scanScope = e.target.value; scanClearResults(); updateScanStatus(); });
+  el['scan-card'].querySelector('#scan-build').addEventListener('click', scanBuild);
+  el['scan-card'].querySelector('#scan-capture').addEventListener('click', scanCapture);
+  el['scan-card'].querySelector('#scan-file').addEventListener('change', (e) => scanFile(e.target.files[0]));
+}
+function scanShowMsg(text) {
+  const msg = el['scan-card']?.querySelector('#scan-msg');
+  if (msg) { msg.textContent = text; msg.classList.remove('hidden'); }
+}
+async function startCamera() {
+  const video = el['scan-card'].querySelector('#scan-video');
+  if (!navigator.mediaDevices?.getUserMedia) { scanShowMsg('Camera not available here — use “Upload”.'); return; }
+  try {
+    SCAN.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    video.srcObject = SCAN.stream;
+    await video.play().catch(() => {});
+    el['scan-card'].querySelector('#scan-msg').classList.add('hidden');
+  } catch (e) {
+    const secure = location.protocol === 'https:' || location.hostname === 'localhost';
+    scanShowMsg(secure
+      ? 'Camera blocked. Allow access, or use “Upload”.'
+      : 'Camera needs HTTPS. Serve over https, or use “Upload”.');
+  }
+}
+function stopCamera() {
+  if (SCAN.stream) { SCAN.stream.getTracks().forEach((t) => t.stop()); SCAN.stream = null; }
+  const video = el['scan-card']?.querySelector('#scan-video');
+  if (video) video.srcObject = null;
+}
+async function scanCapture() {
+  const video = el['scan-card'].querySelector('#scan-video');
+  if (!video || !video.videoWidth) { scanSet('Point the camera at a Pokémon first.'); return; }
+  if (!SCAN.index.length) { scanSet('Prepare a library first.'); return; }
+  try {
+    scanSet('Recognising…');
+    await ensureModel();
+    scanOpenTop(await scanMatch(video, video.videoWidth, video.videoHeight, 1));
+  } catch (e) { scanSet('Scan failed — try again.'); }
+}
+async function scanFile(file) {
+  if (!file) return;
+  if (!SCAN.index.length) { scanSet('Prepare a library first.'); return; }
+  let url;
+  try {
+    scanSet('Recognising…');
+    await ensureModel();
+    url = URL.createObjectURL(file);
+    const img = await scanLoadImg(url, false);
+    scanOpenTop(await scanMatch(img, img.naturalWidth, img.naturalHeight, 1));
+  } catch (e) { scanSet('Could not read that image.'); }
+  finally { if (url) URL.revokeObjectURL(url); }
+}
+/* Open the highest-scoring match directly and read its entry aloud. */
+function scanOpenTop(list) {
+  if (!list || !list.length) { scanSet('No match found.'); return; }
+  scanAutoRead = true;
+  openModal(list[0].id);
+  closeScanner();
 }
 
 function shade(hex, percent) {

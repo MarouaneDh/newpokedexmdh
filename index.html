@@ -76,6 +76,9 @@
           <button id="game-btn" type="button" aria-label="Who's That Pokémon? game" class="header-btn">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
           </button>
+          <button id="scan-btn" type="button" aria-label="Scan a Pokémon with the camera" class="header-btn">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+          </button>
           <button id="theme-toggle" type="button" aria-label="Toggle dark mode" class="header-btn">
             <svg class="theme-icon-sun w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
             <svg class="theme-icon-moon w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>
@@ -224,6 +227,12 @@
   <div id="game-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Who's That Pokémon game">
     <div id="game-backdrop" class="absolute inset-0 bg-poke-ink/60 backdrop-blur-sm"></div>
     <div id="game-card" class="modal-surface relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col translate-y-4 sm:translate-y-0 opacity-0 transition-all duration-300"></div>
+  </div>
+
+  <!-- ===== Camera scan ===== -->
+  <div id="scan-modal" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-label="Scan a Pokémon">
+    <div id="scan-backdrop" class="absolute inset-0 bg-poke-ink/60 backdrop-blur-sm"></div>
+    <div id="scan-card" class="modal-surface relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col translate-y-4 sm:translate-y-0 opacity-0 transition-all duration-300"></div>
   </div>
 
   <!-- ===== Compare tray ===== -->

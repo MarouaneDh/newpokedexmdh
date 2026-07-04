@@ -1,5 +1,5 @@
 /* Pokédex service worker — app shell + runtime caching for offline use */
-const CACHE = 'pokedex-v1';
+const CACHE = 'pokedex-v5';
 const SHELL = ['./', './index.html', './app.js', './styles.css', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {
